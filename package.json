@@ -1,0 +1,23 @@
+{
+  "name": "jsonblite-example",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "tsc && node dist/index.js",
+    "build": "tsc"
+  },
+  "author": "Matias Kaskimies",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.1.0",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1",
+    "jsonblite": "file:../jsonblite",
+    "uuid": "^10.0.0"
+  }
+}
