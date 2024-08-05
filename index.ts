@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 const fastify = Fastify({ logger: true });
 const db = new JSONBLite('./db.jsonblite');
 
+const GITHUB_URL = 'https://github.com/mkaski/jsonblite';
+
 fastify.get('/', async (request, reply) => {
     const keys = db.keys();
     let html = `
@@ -15,18 +17,19 @@ fastify.get('/', async (request, reply) => {
             main { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; }
             article { display: block; padding: 10px 10px 5px; border: 1px solid #d0d0d0; }
             button { padding: 10px; margin: 10px auto; }
-            a { text-decoration: none; color: #333; font-size: 11px; font-family: monospace; padding: 5px; display: block; border: 1px solid #d0d0d0; word-break: break-all; }
+            a.key { text-decoration: none; color: #333; font-size: 11px; font-family: monospace; padding: 5px; display: block; border: 1px solid #d0d0d0; word-break: break-all; }
           </style>
         </head>
         <body>
-          <h1>jsonblite</h1>
+          <h1><a href="${GITHUB_URL}">jsonblite</a></h1>
           <button onclick="location.href='/new'">Write to DB</button>
+          <button onclick="location.href='/dump'">Dump JSON</button>
           <main>`;
 
     keys.forEach((key: string) => {
       html += `
         <article>
-          <a href="/${key}">${key}</a>
+          <a class="key" href="/${key}">${key}</a>
           <button onclick="location.href='/delete/${key}'">Delete</button>
         </article>`;
     });
@@ -58,6 +61,11 @@ fastify.get('/delete/:key', async (request, reply) => {
     db.delete(key);
 
     reply.redirect('/');
+});
+
+fastify.get('/dump', async (request, reply) => {
+    db.dump();
+    reply.send();
 });
 
 const start = async () => {
