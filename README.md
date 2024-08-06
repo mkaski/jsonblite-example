@@ -1,4 +1,4 @@
-# jsonblite playground
+# jsonblite example
 
 An example web server (Fastify) playground for [JSONBLite](https://github.com/mkaski/jsonblite) database.
 

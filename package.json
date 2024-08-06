@@ -1,7 +1,7 @@
 {
   "name": "jsonblite-example",
   "version": "1.0.0",
-  "description": "",
+  "description": "jsonblite example playground",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -11,7 +11,7 @@
   "license": "MIT",
   "dependencies": {
     "fastify": "^4.28.1",
-    "jsonblite": "file:../jsonblite",
+    "jsonblite": "^0.0.1",
     "uuid": "^10.0.0"
   }
 }
