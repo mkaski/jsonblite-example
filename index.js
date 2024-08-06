@@ -42,7 +42,7 @@ fastify.get('/', async (request, reply) => {
 });
 
 fastify.get('/:key', async (request, reply) => {
-    const { key } = request.params as { key: string };
+    const { key } = request.params;
     const value = db.read(key);
 
     if (value) {
@@ -61,7 +61,7 @@ fastify.get('/new', async (request, reply) => {
 });
 
 fastify.get('/delete/:key', async (request, reply) => {
-    const { key } = request.params as { key: string };
+    const { key } = request.params;
     db.delete(key);
 
     reply.redirect('/');
@@ -70,6 +70,11 @@ fastify.get('/delete/:key', async (request, reply) => {
 fastify.get('/dump', async (request, reply) => {
     const stream = db.dump();
     reply.type('application/json').send(stream);
+});
+
+fastify.get('/vacuum', async (request, reply) => {
+    db.vacuum();
+    reply.redirect('/');
 });
 
 const start = async () => {
