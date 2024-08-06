@@ -9,6 +9,9 @@
   },
   "author": "Matias Kaskimies",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "fastify": "^4.28.1",
     "jsonblite": "^0.0.1",
