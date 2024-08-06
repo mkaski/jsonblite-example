@@ -10,7 +10,7 @@
   "author": "Matias Kaskimies",
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=16.14.2"
   },
   "dependencies": {
     "fastify": "^4.28.1",
