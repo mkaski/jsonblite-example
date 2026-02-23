@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JSONBLite Chaos</title>
+  <style>
+    body { margin: 1rem; font-family: sans-serif; line-height: 1.4; }
+    header, nav, section { margin-bottom: 1rem; }
+    nav a { margin-right: 0.75rem; }
+    main.layout { display: grid; gap: 1rem; }
+    @media (min-width: 1000px) {
+      main.layout { grid-template-columns: 2fr 1fr; }
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: min(70vh, 700px);
+      border: 1px solid #ccc;
+      background: #fff;
+    }
+    fieldset { margin: 0; padding: 0.75rem; }
+    .controls { display: grid; gap: 0.5rem; }
+    .buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    pre { background: #f7f7f7; border: 1px solid #ddd; padding: 0.5rem; overflow: auto; min-height: 14rem; }
+    .toast { min-height: 1.2rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Chaos View</h1>
+    <p>Stress test for <code>chaos.db</code> using a moving bot swarm.</p>
+    <nav aria-label="Chaos Links">
+      <a href="/">Home</a>
+      <a href="/?view=crud">Basic CRUD</a>
+      <a href="/dump/chaos" target="_blank" rel="noreferrer">Dump chaos.db</a>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <section aria-labelledby="arena-title">
+      <h2 id="arena-title">Arena</h2>
+      <canvas id="arena"></canvas>
+    </section>
+
+    <section aria-labelledby="controls-title">
+      <h2 id="controls-title">Controls</h2>
+      <fieldset>
+        <legend>Simulation</legend>
+        <div class="controls">
+          <label>
+            Bots: <span id="botCountValue">0</span>
+            <input id="botCount" type="range" min="10" max="1200" step="10" value="180" />
+          </label>
+          <label>
+            Ticks / second: <span id="tickRateValue">0</span>
+            <input id="tickRate" type="range" min="1" max="80" step="1" value="20" />
+          </label>
+          <label>
+            Writes / tick: <span id="writesPerTickValue">0</span>
+            <input id="writesPerTick" type="range" min="0" max="1200" step="5" value="60" />
+          </label>
+          <label>
+            Reads / tick: <span id="readsPerTickValue">0</span>
+            <input id="readsPerTick" type="range" min="0" max="1200" step="5" value="30" />
+          </label>
+        </div>
+
+        <div class="buttons" role="group" aria-label="Chaos Action Buttons">
+          <button id="toggleRunning" type="button">Pause Chaos</button>
+          <button id="resetArena" type="button">Reset Swarm</button>
+          <button id="vacuumDb" type="button">Vacuum DB</button>
+          <button id="panicButton" type="button">Max Chaos (5s)</button>
+        </div>
+      </fieldset>
+
+      <p id="toast" class="toast" aria-live="polite"></p>
+    </section>
+
+    <section aria-labelledby="stats-title">
+      <h2 id="stats-title">Stats</h2>
+      <pre id="stats">Loading...</pre>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('arena');
+    const ctx = canvas.getContext('2d');
+
+    const elements = {
+      botCount: document.getElementById('botCount'),
+      tickRate: document.getElementById('tickRate'),
+      writesPerTick: document.getElementById('writesPerTick'),
+      readsPerTick: document.getElementById('readsPerTick'),
+      botCountValue: document.getElementById('botCountValue'),
+      tickRateValue: document.getElementById('tickRateValue'),
+      writesPerTickValue: document.getElementById('writesPerTickValue'),
+      readsPerTickValue: document.getElementById('readsPerTickValue'),
+      toggleRunning: document.getElementById('toggleRunning'),
+      resetArena: document.getElementById('resetArena'),
+      vacuumDb: document.getElementById('vacuumDb'),
+      panicButton: document.getElementById('panicButton'),
+      stats: document.getElementById('stats'),
+      toast: document.getElementById('toast'),
+    };
+
+    const state = {
+      tick: 0,
+      config: {
+        running: true,
+        botCount: 180,
+        tickRate: 20,
+        writesPerTick: 60,
+        readsPerTick: 30,
+        arenaWidth: 2000,
+        arenaHeight: 1200,
+      },
+      stats: null,
+      bots: [],
+      syncing: false,
+    };
+
+    let configDebounce = null;
+
+    function showToast(message) {
+      elements.toast.textContent = message;
+    }
+
+    function setCanvasSize() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function colorForBot(bot) {
+      if (bot.action === 'attack') return '#d97706';
+      if (bot.action === 'respawn') return '#7c3aed';
+      if (bot.action === 'recover') return '#16a34a';
+      if (bot.action === 'bounce') return '#2563eb';
+      return '#334155';
+    }
+
+    function render() {
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+
+      const scaleX = w / state.config.arenaWidth;
+      const scaleY = h / state.config.arenaHeight;
+
+      for (const bot of state.bots) {
+        const x = bot.x * scaleX;
+        const y = bot.y * scaleY;
+        const radius = 2 + Math.min(7, Math.max(2, bot.energy / 24));
+
+        ctx.beginPath();
+        ctx.fillStyle = colorForBot(bot);
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      requestAnimationFrame(render);
+    }
+
+    function updateControlLabels() {
+      elements.botCountValue.textContent = Number(elements.botCount.value).toLocaleString();
+      elements.tickRateValue.textContent = elements.tickRate.value;
+      elements.writesPerTickValue.textContent = Number(elements.writesPerTick.value).toLocaleString();
+      elements.readsPerTickValue.textContent = Number(elements.readsPerTick.value).toLocaleString();
+    }
+
+    function syncControlValuesFromState() {
+      elements.botCount.value = String(state.config.botCount);
+      elements.tickRate.value = String(state.config.tickRate);
+      elements.writesPerTick.value = String(state.config.writesPerTick);
+      elements.readsPerTick.value = String(state.config.readsPerTick);
+      elements.toggleRunning.textContent = state.config.running ? 'Pause Chaos' : 'Resume Chaos';
+      updateControlLabels();
+    }
+
+    function formatStats() {
+      if (!state.stats) {
+        elements.stats.textContent = 'Waiting for state...';
+        return;
+      }
+
+      const uptimeSec = Math.max(1, Math.floor((state.stats.uptimeMs || 0) / 1000));
+      const writesPerSec = (state.stats.writes || 0) / uptimeSec;
+      const readsPerSec = (state.stats.reads || 0) / uptimeSec;
+      const deletesPerSec = (state.stats.deletes || 0) / uptimeSec;
+      const killsPerMin = ((state.stats.kills || 0) / uptimeSec) * 60;
+      const collisionsPerMin = ((state.stats.collisions || 0) / uptimeSec) * 60;
+      const dbOpsPerTick = state.stats.ticks > 0
+        ? ((state.stats.writes + state.stats.reads + state.stats.deletes) / state.stats.ticks)
+        : 0;
+
+      const lines = [
+        `bots:           ${state.stats.botCount}`,
+        `tick:           ${state.tick}`,
+        `running:        ${state.config.running}`,
+        `uptime:         ${uptimeSec}s`,
+        '',
+        'throughput',
+        `writes/sec:     ${writesPerSec.toFixed(1)}`,
+        `reads/sec:      ${readsPerSec.toFixed(1)}`,
+        `deletes/sec:    ${deletesPerSec.toFixed(1)}`,
+        `db ops/tick:    ${dbOpsPerTick.toFixed(2)}`,
+        '',
+        'world pressure',
+        `kills/min:      ${killsPerMin.toFixed(1)}`,
+        `collisions/min: ${collisionsPerMin.toFixed(1)}`,
+        '',
+        'engine',
+        `ticks total:    ${state.stats.ticks}`,
+        `writes:         ${state.stats.writes}`,
+        `reads:          ${state.stats.reads}`,
+        `deletes:        ${state.stats.deletes}`,
+        `tick ms(last):  ${state.stats.lastTickMs}`,
+        `tick ms(avg):   ${state.stats.avgTickMs}`,
+        `errors:         ${state.stats.errors}`,
+      ];
+
+      if (state.stats.lastVacuumAt) {
+        lines.push(`vacuum at:      ${new Date(state.stats.lastVacuumAt).toLocaleTimeString()}`);
+      }
+      if (state.stats.lastError) {
+        lines.push(`last error:     ${state.stats.lastError}`);
+      }
+
+      elements.stats.textContent = lines.join('\n');
+    }
+
+    async function postJson(url, payload = {}) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
+
+      return response.json();
+    }
+
+    async function fetchState() {
+      if (state.syncing) return;
+      state.syncing = true;
+
+      try {
+        const response = await fetch('/api/chaos/state');
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+
+        const data = await response.json();
+        state.tick = data.tick;
+        state.config = data.config;
+        state.stats = data.stats;
+        state.bots = data.bots;
+
+        syncControlValuesFromState();
+        formatStats();
+      } catch (err) {
+        elements.stats.textContent = `state fetch failed: ${err.message}`;
+      } finally {
+        state.syncing = false;
+      }
+    }
+
+    function pushConfigFromControls() {
+      clearTimeout(configDebounce);
+      configDebounce = setTimeout(async () => {
+        try {
+          const payload = {
+            botCount: Number(elements.botCount.value),
+            tickRate: Number(elements.tickRate.value),
+            writesPerTick: Number(elements.writesPerTick.value),
+            readsPerTick: Number(elements.readsPerTick.value),
+          };
+
+          const updated = await postJson('/api/chaos/config', payload);
+          state.config = updated.config;
+          updateControlLabels();
+          showToast('Config updated');
+        } catch (err) {
+          showToast(`Update failed: ${err.message}`);
+        }
+      }, 120);
+    }
+
+    for (const slider of [elements.botCount, elements.tickRate, elements.writesPerTick, elements.readsPerTick]) {
+      slider.addEventListener('input', () => {
+        updateControlLabels();
+        pushConfigFromControls();
+      });
+    }
+
+    elements.toggleRunning.addEventListener('click', async () => {
+      try {
+        const updated = await postJson('/api/chaos/config', { running: !state.config.running });
+        state.config = updated.config;
+        elements.toggleRunning.textContent = state.config.running ? 'Pause Chaos' : 'Resume Chaos';
+        showToast(state.config.running ? 'Chaos running' : 'Chaos paused');
+      } catch (err) {
+        showToast(`Toggle failed: ${err.message}`);
+      }
+    });
+
+    elements.resetArena.addEventListener('click', async () => {
+      try {
+        await postJson('/api/chaos/reset');
+        showToast('Swarm reset');
+      } catch (err) {
+        showToast(`Reset failed: ${err.message}`);
+      }
+    });
+
+    elements.vacuumDb.addEventListener('click', async () => {
+      try {
+        await postJson('/api/chaos/vacuum');
+        showToast('Vacuum done');
+      } catch (err) {
+        showToast(`Vacuum failed: ${err.message}`);
+      }
+    });
+
+    elements.panicButton.addEventListener('click', async () => {
+      const backup = {
+        writesPerTick: Number(elements.writesPerTick.value),
+        readsPerTick: Number(elements.readsPerTick.value),
+      };
+
+      try {
+        await postJson('/api/chaos/config', {
+          writesPerTick: Math.min(1200, backup.writesPerTick + 500),
+          readsPerTick: Math.min(1200, backup.readsPerTick + 500),
+        });
+        showToast('Max chaos for 5s');
+
+        setTimeout(async () => {
+          try {
+            await postJson('/api/chaos/config', backup);
+            showToast('Chaos normalized');
+          } catch {
+            // ignore
+          }
+        }, 5000);
+      } catch (err) {
+        showToast(`Panic failed: ${err.message}`);
+      }
+    });
+
+    window.addEventListener('resize', setCanvasSize);
+
+    setCanvasSize();
+    updateControlLabels();
+    render();
+    fetchState();
+    setInterval(fetchState, 200);
+  </script>
+</body>
+</html>
